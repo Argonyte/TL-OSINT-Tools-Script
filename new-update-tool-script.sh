@@ -1,6 +1,5 @@
 #!/bin/zsh
 
-
 # Cleanup function to kill the background keep-alive process
 cleanup() {
     # Kill the background keep-alive process
@@ -16,6 +15,17 @@ while true; do
   sudo -n true
   sleep 30
 done 2>/dev/null &
+
+echo "----------------------------------"
+echo "🔍 OSINT Tools Installer Script"
+echo "----------------------------------"
+
+# Prevent running the script as sudo
+if [ "$EUID" -eq 0 ]; then
+  echo "[!] Do NOT run this script with sudo. It will break pipx paths and permissions."
+  echo "    Just run it as a normal user."
+  exit 1
+fi
 
 
 # Define the log file location
@@ -36,7 +46,7 @@ add_to_error_log() {
 
 display_log_contents() {
     if [ -s "$LOG_FILE" ]; then
-        echo "Installation completed with errors. Review the log below:"
+        echo "[!] Installation completed with errors. Review the log below:"
         cat "$LOG_FILE"
     else
         echo "Installation completed successfully with no errors."
@@ -46,32 +56,74 @@ display_log_contents() {
 
 # Function to update and upgrade the system
 update_system() {
-    sudo apt-get update || { echo "Failed to update package lists"; add_to_error_log "Failed to update package lists"; }
-    sudo apt-get dist-upgrade -y || { echo "Failed to upgrade the system"; add_to_error_log "Failed to upgrade the system"; }
+    sudo apt update || { echo "Failed to update package lists"; add_to_error_log "Failed to update package lists"; }
+    sudo apt dist-upgrade -y || { echo "Failed to upgrade the system"; add_to_error_log "Failed to upgrade the system"; }
 }
 
 
 # Function to set up the PATH
 setup_path() {
     if ! grep -q 'export PATH=$PATH:$HOME/.local/bin' ~/.zshrc; then
-        echo '\nexport PATH=$PATH:$HOME/.local/bin' >> ~/.zshrc
+    	echo 'export PATH="$PATH:$HOME/.local/bin"' >> ~/.zshrc
+   	echo "[*] Added ~/.local/bin to PATH in .zshrc. Please restart your shell or run: source ~/.zshrc"
     fi
-    . ~/.zshrc || { echo "Failed to source .zshrc"; add_to_error_log "Failed to source .zshrc"; }
 }
 
-#tools go brrrrr
+# Fix broken pipx path if user previously ran this script with sudo; the script breaks if i don't do this shit
+fix_sudo_pipx_path_issue() {
+    if [ ! -x "$HOME/.local/bin/h8mail" ] && [ -x "/root/.local/bin/h8mail" ]; then
+        echo "[!] Detected h8mail installed in /root/.local/bin — likely due to sudo pipx install."
+        echo "    Attempting to copy it to your local bin..."
+
+        mkdir -p "$HOME/.local/bin"
+        sudo cp /root/.local/bin/h8mail "$HOME/.local/bin/" && sudo chmod +x "$HOME/.local/bin/h8mail"
+
+        if command -v h8mail >/dev/null 2>&1; then
+            echo "[+] Successfully copied h8mail to your user bin."
+        else
+            echo "[x] Copy failed. h8mail still not available in PATH."
+            add_to_error_log "Failed to fix h8mail pipx path issue"
+        fi
+    fi
+}
+
+#install tools go brrrr
 install_tools() {
     local tools=(spiderfoot sherlock maltego python3-shodan theharvester webhttrack outguess stegosuite wireshark metagoofil eyewitness exifprobe ruby-bundler recon-ng cherrytree instaloader photon sublist3r osrframework joplin drawing cargo pkg-config curl python3-pip pipx python3-exifread python3-fake-useragent tor torbrowser-launcher yt-dlp keepassxc)
     for tool in "${tools[@]}"; do
         if ! dpkg -l | grep -qw $tool; then
             sudo apt install $tool -y 2>>"$LOG_FILE" || {
-                echo "Failed to install $tool"
-                add_to_error_log "Failed to install $tool, see log for details."
+                echo "[x] Failed to install $tool"
+                add_to_error_log "[x] Failed to install $tool, see log for details."
             }
         else
             echo "$tool is already installed."
         fi
     done
+}
+
+#fall back for pipx; idk why we have to do this teribleness just because kali enforces venv
+install_with_pipx_fallback() {
+    local tool_name="$1"
+    local tool_dir="$2"
+
+    if ! command -v pipx >/dev/null 2>&1; then
+        echo "pipx not found, attempting to install..."
+        sudo apt install pipx -y || {
+            echo "Failed to install pipx"
+            add_to_error_log "Failed to install pipx"
+            return 1
+        }
+    fi
+
+    echo "Installing $tool_name via pipx..."
+    pipx install --force "$tool_dir" || {
+        echo "pipx failed, falling back to pip3"
+        pip3 install "$tool_dir" --break-system-packages || {
+            echo "Failed to install $tool_name with both pipx and pip3"
+            add_to_error_log "Failed to install $tool_name with both pipx and pip3"
+        }
+    }
 }
 
 #Phoneinfoga installer
@@ -88,20 +140,91 @@ install_phoneinfoga() {
     chmod +x /usr/local/bin/phoneinfoga
 }
 
+#splitting of previous python tools into individual functions for git download because post v12 python will ask for break system packages
 
-# Function to install Python packages globally post v12 because kali likes venv too much. yes this is a stupid fix. no idk how to get it better.
-install_python_packages() {
-    sudo apt install python3-setuptools -y || { echo "Failed to install setuptools"; add_to_error_log "Failed to install setuptools"; }
+#h8mail installer
+install_h8mail_from_source() {
+    local tool_dir="$HOME/osint_tools/h8mail"
+    mkdir -p "$(dirname "$tool_dir")"
 
-    pipx install youtube-dl || { echo "Failed to install youtube-dl"; add_to_error_log "Failed to install youtube-dl"; }
-    pip3 install dnsdumpster --break-system-packages || { echo "Failed to install dnsdumpster"; add_to_error_log "Failed to install dnsdumpster"; }
-    pipx install h8mail || { echo "Failed to install h8mail"; add_to_error_log "Failed to install h8mail"; }
-    pipx install toutatis || { echo "Failed to install toutatis"; add_to_error_log "Failed to install toutatis"; }
-    pip3 install tweepy --break-system-packages || { echo "Failed to install tweepy"; add_to_error_log "Failed to install tweepy"; }
-    pip3 install onionsearch --break-system-packages || { echo "Failed to install onionsearch"; add_to_error_log "Failed to install onionsearch"; }
+    if [ ! -d "$tool_dir" ]; then
+        git clone https://github.com/khast3x/h8mail.git "$tool_dir" || {
+            echo "Failed to clone h8mail"
+            add_to_error_log "Failed to clone h8mail"
+            return
+        }
+    fi
+
+    cd "$tool_dir" || return
+    install_with_pipx_fallback "h8mail" "$tool_dir" || {
+        echo "Failed to install h8mail globally"
+        add_to_error_log "Failed to install h8mail globally"
+    }
 }
 
-# Function to install sn0int and fixed the keyring thing
+#toutatis installer
+install_toutatis_from_source() {
+    local tool_dir="$HOME/osint_tools/toutatis"
+    mkdir -p "$(dirname "$tool_dir")"
+
+    if [ ! -d "$tool_dir" ]; then
+        git clone https://github.com/megadose/toutatis.git "$tool_dir" || {
+            echo "Failed to clone toutatis"
+            add_to_error_log "Failed to clone toutatis"
+            return
+        }
+    fi
+
+    cd "$tool_dir" || return
+    install_with_pipx_fallback "toutatis" "$tool_dir" || {
+        echo "Failed to install toutatis globally"
+        add_to_error_log "Failed to install toutatis globally"
+    }
+}
+
+#onionsearch installer
+install_onionsearch_from_source() {
+    local tool_dir="$HOME/osint_tools/onionsearch"
+    mkdir -p "$(dirname "$tool_dir")"
+
+    if [ ! -d "$tool_dir" ]; then
+        git clone https://github.com/megadose/onionsearch.git "$tool_dir" || {
+            echo "Failed to clone onionsearch"
+            add_to_error_log "Failed to clone onionsearch"
+            return
+        }
+    fi
+
+    cd "$tool_dir" || return
+    install_with_pipx_fallback "onionsearch" "$tool_dir" || {
+        echo "Failed to install onionsearch globally"
+        add_to_error_log "Failed to install onionsearch globally"
+    }
+}
+
+# Function to install dnsdumpster and tweepy post v12 using break packages; plz excuse this terribleness, i am also mortified
+install_misc_python_packages() {
+    pip3 install dnsdumpster tweepy --break-system-packages || {
+        echo "Failed to install dnsdumpster or tweepy"
+        add_to_error_log "Failed to install dnsdumpster or tweepy"
+    }
+}
+
+#youtube-dl isntaller
+install_youtube_dl() {
+    if ! command -v youtube-dl >/dev/null 2>&1; then
+        echo "[*] Installing youtube-dl globally..."
+        pipx install youtube-dl || sudo pip3 install youtube-dl --break-system-packages
+        if ! command -v youtube-dl >/dev/null 2>&1; then
+            echo "youtube-dl installation failed"
+            add_to_error_log "Failed to install youtube-dl"
+        fi
+    else
+        echo "youtube-dl is already installed."
+    fi
+}
+
+# Function to install sn0int
 install_sn0int() {
     sudo mkdir -p /etc/apt/keyrings
     curl -fsSL https://apt.vulns.sexy/kpcyrd.pgp | sudo gpg --dearmor -o /etc/apt/keyrings/sn0int.gpg \
@@ -130,20 +253,24 @@ update_tj_null_joplin_notebook() {
     fi
 }
 
-# Invalidate the sudo timestamp before exiting
-sudo -k
-
 # Main script execution
-init_error_log
+main() {
+	init_error_log
+	update_system
+	setup_path
+	fix_sudo_pipx_path_issue
+	install_tools
+	install_phoneinfoga
+	install_h8mail_from_source
+	install_toutatis_from_source
+	install_onionsearch_from_source
+	install_misc_python_packages
+	install_youtube_dl
+	install_sn0int
+	install_finalrecon
+	update_tj_null_joplin_notebook
+	display_log_contents
+	sudo -k
+}
 
-update_system
-setup_path
-install_tools
-install_phoneinfoga
-install_python_packages
-install_sn0int
-install_finalrecon
-update_tj_null_joplin_notebook
-
-display_log_contents
-
+main
