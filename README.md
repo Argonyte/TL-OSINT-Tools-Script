@@ -19,8 +19,8 @@ A fixed and modernized version of the original Trace Labs OSINT VM tools script.
 
 1. Clone this repository:  `git clone https://github.com/Argonyte/TL-OSINT-Tools-Script.git`
 2. Do:  `cd TL-OSINT-Tools-Script`  
-3. Make the script executable: `chmod +x install-tools.sh`
-4. Run the script without sudo: `./install-tools.sh`
+3. Make the script executable: `chmod +x new-update-tool-script.sh`
+4. Run the script without sudo: `./new-update-tool-script.sh`
 
 ---
 
