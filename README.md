@@ -1,6 +1,6 @@
 # TL-OSINT-Tools-Script
 
-A fixed and modernized version of the original Trace Labs OSINT VM tools script.
+A fixed and updated version of the original Trace Labs OSINT VM tools script.
 
 ---
 
@@ -43,5 +43,5 @@ I just wanted a fix for the original broken script which is on their VM.
 
 The original concept, layout, and intent belong to Trace Labs and its contributors.
 
-This version was created to make the script work again on modern systems.
+This version was created to make the script work again on updated VM versions.
 The script is made with love, alot of anger towards myself, my want to learn bash and AI helping me understand my mistakes and debugging.
